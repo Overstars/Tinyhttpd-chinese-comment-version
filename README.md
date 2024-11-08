@@ -1,101 +1,56 @@
-A mirror for tinyhttpd(Tinyhttpd非官方镜像,Fork自[sourceForge](https://sourceforge.net/projects/tiny-httpd/),仅供学习)
+# tinyhttpd-for-windows
+来源
 
-测试CGI时需要本机安装PERL，同时安装perl-cgi
+ https://blog.csdn.net/magictong/article/details/53201038
 
-### Prepare 
-Compile for Linux
-```
- To compile for Linux:
-  1) Comment out the #include <pthread.h> line.
-  2) Comment out the line that defines the variable newthread.
-  3) Comment out the two lines that run pthread_create().
-  4) Uncomment the line that runs accept_request().
-  5) Remove -lsocket from the Makefile.
-```
 
-<p>&nbsp; &nbsp; &nbsp;每个函数的作用：</p>
-<p>&nbsp; &nbsp; &nbsp;accept_request: &nbsp;处理从套接字上监听到的一个 HTTP 请求，在这里可以很大一部分地体现服务器处理请求流程。</p>
-<p>&nbsp; &nbsp; &nbsp;bad_request: 返回给客户端这是个错误请求，HTTP 状态吗 400 BAD REQUEST.</p>
-<p>&nbsp; &nbsp; &nbsp;cat: 读取服务器上某个文件写到 socket 套接字。</p>
-<p>&nbsp; &nbsp; &nbsp;cannot_execute: 主要处理发生在执行 cgi 程序时出现的错误。</p>
-<p>&nbsp; &nbsp; &nbsp;error_die: 把错误信息写到 perror 并退出。</p>
-<p>&nbsp; &nbsp; &nbsp;execute_cgi: 运行 cgi 程序的处理，也是个主要函数。</p>
-<p>&nbsp; &nbsp; &nbsp;get_line: 读取套接字的一行，把回车换行等情况都统一为换行符结束。</p>
-<p>&nbsp; &nbsp; &nbsp;headers: 把 HTTP 响应的头部写到套接字。</p>
-<p>&nbsp; &nbsp; &nbsp;not_found: 主要处理找不到请求的文件时的情况。</p>
-<p>&nbsp; &nbsp; &nbsp;sever_file: 调用 cat 把服务器文件返回给浏览器。</p>
-<p>&nbsp; &nbsp; &nbsp;startup: 初始化 httpd 服务，包括建立套接字，绑定端口，进行监听等。</p>
-<p>&nbsp; &nbsp; &nbsp;unimplemented: 返回给浏览器表明收到的 HTTP 请求所用的 method 不被支持。</p>
-<p><br>
-</p>
-<p>&nbsp; &nbsp; &nbsp;建议源码阅读顺序： main -&gt; startup -&gt; accept_request -&gt; execute_cgi, 通晓主要工作流程后再仔细把每个函数的源码看一看。</p>
-<p><br>
-</p>
-<h4>&nbsp; &nbsp; &nbsp;工作流程</h4>
-<p>&nbsp; &nbsp; &nbsp;（1） 服务器启动，在指定端口或随机选取端口绑定 httpd 服务。</p>
-<p>&nbsp; &nbsp; &nbsp;（2）收到一个 HTTP 请求时（其实就是 listen 的端口 accpet 的时候），派生一个线程运行 accept_request 函数。</p>
-<p>&nbsp; &nbsp; &nbsp;（3）取出 HTTP 请求中的 method (GET 或 POST) 和 url,。对于 GET 方法，如果有携带参数，则 query_string 指针指向 url 中 ？ 后面的 GET 参数。</p>
-<p>&nbsp; &nbsp; &nbsp;（4） &#26684;式化 url 到 path 数组，表示浏览器请求的服务器文件路径，在 tinyhttpd 中服务器文件是在 htdocs 文件夹下。当 url 以 / 结尾，或 url 是个目录，则默认在 path 中加上 index.html，表示访问主页。</p>
-<p>&nbsp; &nbsp; &nbsp;（5）如果文件路径合法，对于无参数的 GET 请求，直接输出服务器文件到浏览器，即用 HTTP &#26684;式写到套接字上，跳到（10）。其他情况（带参数 GET，POST 方式，url 为可执行文件），则调用 excute_cgi 函数执行 cgi 脚本。</p>
-<p>&nbsp; &nbsp; （6）读取整个 HTTP 请求并丢弃，如果是 POST 则找出 Content-Length. 把 HTTP 200 &nbsp;状态码写到套接字。</p>
-<p>&nbsp; &nbsp; （7） 建立两个管道，cgi_input 和 cgi_output, 并 fork 一个进程。</p>
-<p>&nbsp; &nbsp; （8） 在子进程中，把 STDOUT 重定向到 cgi_outputt 的写入端，把 STDIN 重定向到 cgi_input 的读取端，关闭 cgi_input 的写入端 和 cgi_output 的读取端，设置 request_method 的环境变量，GET 的话设置 query_string 的环境变量，POST 的话设置 content_length 的环境变量，这些环境变量都是为了给 cgi 脚本调用，接着用 execl 运行 cgi 程序。</p>
-<p>&nbsp; &nbsp; （9） 在父进程中，关闭 cgi_input 的读取端 和 cgi_output 的写入端，如果 POST 的话，把 POST 数据写入 cgi_input，已被重定向到 STDIN，读取 cgi_output 的管道输出到客户端，该管道输入是 STDOUT。接着关闭所有管道，等待子进程结束。这一部分比较乱，见下图说明：</p>
-<p><br>
-</p>
-<p><img src="http://img.blog.csdn.net/20141226173222750?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvamNqYzkxOA==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center" width="484" height="222" alt=""><br>
-</p>
-<p>图 1 &nbsp; &nbsp;管道初始状态</p>
-<p><br>
-</p>
-<p><img src="http://img.blog.csdn.net/20141226161119981?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvamNqYzkxOA==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center" alt=""></p>
-<p> 图 2 &nbsp;管道最终状态&nbsp;</p>
-<p><br>
-</p>
-<p>&nbsp; &nbsp; （10） 关闭与浏览器的连接，完成了一次 HTTP 请求与回应，因为 HTTP 是无连接的。</p>
-<p><br>
-</p>
 
-以下内容来自源作者:
+前言
 
-  This software is copyright 1999 by J. David Blackstone.  Permission
-is granted to redistribute and modify this software under the terms of
-the GNU General Public License, available at http://www.gnu.org/ .
+TinyHTTPd是一个开源的简易学习型的HTTP服务器
+项目主页在：http://tinyhttpd.sourceforge.net/，
+源代码下载：https://sourceforge.net/projects/tinyhttpd/
+因为是学习型的代码,已经有好多年没更新了，也没什么更新必要，整个代码才500多行，10多个函数，对于学习HTTP服务器的原理来说非常有帮助，把代码读一遍，再按照执行处理流程调试一下，基本上可以搞清楚Web服务器在收到静态页面请求和CGI请求的一些基本处理逻辑。源代码的注释我这里就不讲了，本身代码比较简单，而且网上这样的文章汗牛充栋，可以去后面的参考文档阅读下。
 
-  If you use this software or examine the code, I would appreciate
-knowing and would be overjoyed to hear about it at
-jdavidb@sourceforge.net .
+本文主要是将TinyHTTPd进行一些简单移植，使其可以在Windows上面运行调试，让只有Windows开发调试环境的小伙伴也能够学习学习。
 
-  This software is not production quality.  It comes with no warranty
-of any kind, not even an implied warranty of fitness for a particular
-purpose.  I am not responsible for the damage that will likely result
-if you use this software on your computer system.
 
-  I wrote this webserver for an assignment in my networking class in
-1999.  We were told that at a bare minimum the server had to serve
-pages, and told that we would get extra credit for doing "extras."
-Perl had introduced me to a whole lot of UNIX functionality (I learned
-sockets and fork from Perl!), and O'Reilly's lion book on UNIX system
-calls plus O'Reilly's books on CGI and writing web clients in Perl got
-me thinking and I realized I could make my webserver support CGI with
-little trouble.
 
-  Now, if you're a member of the Apache core group, you might not be
-impressed.  But my professor was blown over.  Try the color.cgi sample
-script and type in "chartreuse."  Made me seem smarter than I am, at
-any rate. :)
+修改明细
 
-  Apache it's not.  But I do hope that this program is a good
-educational tool for those interested in http/socket programming, as
-well as UNIX system calls.  (There's some textbook uses of pipes,
-environment variables, forks, and so on.)
+支持Windows部分
 
-  One last thing: if you look at my webserver or (are you out of
-mind?!?) use it, I would just be overjoyed to hear about it.  Please
-email me.  I probably won't really be releasing major updates, but if
-I help you learn something, I'd love to know!
+1、  Windows下的socket支持（微小改动，变量，宏调整等等）。
 
-  Happy hacking!
+2、  接入基于Windows平台的一个微型线程池库（项目在用），对于每个新的http请求抛到线程池处理，源代码使用的是基于linux的pthread。
 
-                                   J. David Blackstone
+3、  部分字符串比较函数修改为windows平台的对应支持函数，以及其它一些相应兼容性修改。
 
+4、  CGI部分支持了Python脚本和Windows批处理脚本，其它的如果需要支持可以进行修改，另外，CGI部分目前实现比较粗糙，完全是为了体现一下CGI请求的原理（POST的CGI处理仅仅是把提交的数据返回给客户端显示）。
+
+5、  CGI部分使用了匿名管道，匿名管道不支持异步读写数据，因此需要控制读写匿名管道的次数（建议仅读一次，并且CGI的返回字符长度不要超过2048字节）。
+
+
+
+
+优化
+
+1、  给客户端返回数据时，合并了需要发送的数据，使用send一次发送，而不是每次发送几个字符，不过这里没有进行send失败的错误处理，学习代码吧，如果是商用代码，send失败是需要重试的（当然，商用代码一般都是使用异步socket），这个地方之前作者分成多次发送的目的可能是为了体现网络数据传输的原理。
+
+2、  合并了一些公用代码。
+
+3、  代码里面直接写死了绑定80端口，如果需要由系统自动分配端口就把这句代码：u_short port = 80修改为u_short port = 0，绑死80端口是为了使用浏览器测试时比较方便。
+
+
+
+
+bug修改
+
+1、  cat函数里面使用fgets读取文件进行数据发送时，有可能发送不完整。
+
+
+
+
+资源补充
+
+1、  补充批处理的cgi支持和py脚本的cgi支持（都比较简单，需要注意的是py脚本支持需要本地安装python2.x的环境）。
